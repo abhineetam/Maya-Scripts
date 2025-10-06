@@ -1,0 +1,105 @@
+// ============================================================================
+// Script: Arnold → RenderMan Material Converter (MEL)
+// Author: Abhi
+// Description:
+//   This script converts an existing Arnold material network into a RenderMan
+//   PxrDisneyBsdf shading network, reuses the same texture maps, and reassigns
+//   the new RenderMan material to all meshes previously using the Arnold material.
+//   This is purposely made for Kitbash Assets but can be customised for specific use cases. 
+// Workflow:
+//   1. Select the Arnold material node you want to convert.
+//   2. The script will:
+//        - Create a new PxrDisneyBsdf and PxrNormalMap.
+//        - Copy over connected file textures based on naming convention.
+//        - Adjust color space for Roughness, Metalness, and Normal maps to RAW.
+//        - Create a new shading group.
+//        - Reassign all meshes from the old Arnold shading group to the new RenderMan one.
+//
+// Texture naming convention (expected):
+//   - file_basecolor_* → baseColor (RGB, sRGB)
+//   - file_rghText_*   → roughness (R, RAW)
+//   - file_mtlText_*   → metallic (R, RAW)
+//   - file_emissive_*  → emitColor (RGB, sRGB)
+//   - file_nmlBump_*   → normal map (RGB, RAW → PxrNormalMap → bumpNormal)
+//
+// ============================================================================
+
+// -----------------------------------------------------------------------------
+// STEP 1: Get selected Arnold material (source material)
+// -----------------------------------------------------------------------------
+string $sel[] = `ls -sl`;
+if (!size($sel)) error "Select the source material first.";
+string $srcMat = $sel[0];
+
+// -----------------------------------------------------------------------------
+// STEP 2: Get the shading group of the old material
+// -----------------------------------------------------------------------------
+string $sgOld[] = `listConnections -type shadingEngine $srcMat`;
+if (!size($sgOld)) error "Old material has no shading group.";
+
+// -----------------------------------------------------------------------------
+// STEP 3: Get all meshes currently assigned to the old shading group
+// -----------------------------------------------------------------------------
+string $assigned[] = `sets -q $sgOld[0]`;
+
+// -----------------------------------------------------------------------------
+// STEP 4: Create new RenderMan nodes (Disney BSDF + NormalMap)
+// -----------------------------------------------------------------------------
+string $pxrDisney = `shadingNode -asShader "PxrDisneyBsdf" -name ($srcMat + "_RMAN")`;
+string $pxrNormal = `shadingNode -asUtility "PxrNormalMap" -name ($srcMat + "_pxrNormal")`;
+
+// Create new shading group for RenderMan material
+string $sgNew = `sets -renderable true -noSurfaceShader true -empty -name ($pxrDisney + "SG")`;
+
+// Connect PxrDisney to the new shading group
+connectAttr -f ($pxrDisney + ".outColor") ($sgNew + ".surfaceShader");
+
+// -----------------------------------------------------------------------------
+// STEP 5: Walk through file nodes in the old material network and rewire them
+// -----------------------------------------------------------------------------
+string $hist[] = `listHistory -pruneDagObjects 1 -future 0 -allConnections $srcMat`;
+
+for ($n in $hist) {
+    if (`nodeType $n` != "file") continue;
+
+    // BaseColor (RGB → baseColor)
+    if (`gmatch $n "*file_basecolor_*"`) {
+        connectAttr -f ($n + ".outColor") ($pxrDisney + ".baseColor");
+    }
+
+    // Roughness (R → RAW → roughness)
+    else if (`gmatch $n "*file_rghText_*"`) {
+        setAttr ($n + ".colorSpace") -type "string" "Raw";
+        connectAttr -f ($n + ".outColorR") ($pxrDisney + ".roughness");
+    }
+
+    // Metalness (R → RAW → metallic)
+    else if (`gmatch $n "*file_mtlText_*"`) {
+        setAttr ($n + ".colorSpace") -type "string" "Raw";
+        connectAttr -f ($n + ".outColorR") ($pxrDisney + ".metallic");
+    }
+
+    // Emissive (RGB → emitColor)
+    else if (`gmatch $n "*file_emissive_*"`) {
+        connectAttr -f ($n + ".outColor") ($pxrDisney + ".emitColor");
+    }
+
+    // Normal Map (RGB → RAW → PxrNormalMap → bumpNormal)
+    else if (`gmatch $n "*file_nmlBump_*"`) {
+        setAttr ($n + ".colorSpace") -type "string" "Raw";
+        connectAttr -f ($n + ".outColor") ($pxrNormal + ".inputRGB");
+        connectAttr -f ($pxrNormal + ".resultN") ($pxrDisney + ".bumpNormal");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// STEP 6: Reassign all the same meshes to the new RenderMan shading group
+// -----------------------------------------------------------------------------
+if (size($assigned)) {
+    sets -e -forceElement $sgNew $assigned;
+}
+
+// -----------------------------------------------------------------------------
+// Done
+// -----------------------------------------------------------------------------
+print ("✅ Replaced material " + $srcMat + " with " + $pxrDisney + " on assigned meshes.\n");
