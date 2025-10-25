@@ -1,0 +1,22 @@
+// ============================================================================
+// Script: Move objects (after freeze transformations) to world 0 0 0 (MEL)
+// Author: Abhi
+// Description:
+//  This script moves the objects back to world space 0 0 0 after their transforms have been frozen. 
+//  
+// Workflow:
+//   1. Select the objects.
+//   2. Run the script
+// ============================================================================
+
+// Get selected transforms
+string $sel[] = `ls -sl -type transform`;
+
+for ($s in $sel) {
+    // Query the local (object space) rotate pivot position
+    float $piv[] = `xform -q -os -rp $s`;
+
+    // Move the object by the negative of its local pivot values
+    // This shifts the mesh so its local pivot aligns with the transform origin
+    move (-$piv[0]) (-$piv[1]) (-$piv[2]) $s;
+}
