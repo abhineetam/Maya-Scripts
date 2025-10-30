@@ -1,0 +1,24 @@
+// Set selected file nodes to Raw; if none selected, set all file nodes
+global proc setFileNodesColorSpaceToRaw()
+{
+    string $files[] = `ls -sl -type "file"`;
+    if (!size($files)) $files = `ls -type "file"`;
+
+    int $i;
+    for ($i = 0; $i < size($files); $i++)
+    {
+        string $f = $files[$i];
+
+        if (`attributeQuery -exists -node $f "useDefaultColorSpace"`)
+            setAttr ($f + ".useDefaultColorSpace") 0;
+
+        if (`attributeQuery -exists -node $f "ignoreColorSpaceFileRules"`)
+            setAttr ($f + ".ignoreColorSpaceFileRules") 1;
+
+        if (`attributeQuery -exists -node $f "colorSpace"`)
+            setAttr -type "string" ($f + ".colorSpace") "Raw";
+    }
+}
+
+// Run:
+setFileNodesColorSpaceToRaw();
