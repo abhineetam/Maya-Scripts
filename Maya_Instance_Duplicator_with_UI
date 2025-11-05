@@ -1,0 +1,71 @@
+// Minimal MEL: Instance Duplicator with UI (fixed global scope)
+
+// Global holder
+global string $gIDU_Source = "";
+
+// Return a transform for any selected node
+global proc string _asXform(string $n)
+{
+    if (!`objExists $n`) return "";
+    if (`nodeType $n` == "transform") return $n;
+    string $p[] = `listRelatives -p $n`;
+    return (size($p) ? $p[0] : "");
+}
+
+// Button 1: store source from current selection
+global proc IDU_SetSource()
+{
+    global string $gIDU_Source; // <-- re-declare to access the global
+    string $s[] = `ls -sl`;
+    if (size($s) != 1) { warning "Select exactly one object."; return; }
+    string $t = _asXform($s[0]);
+    if ($t == "") { warning "Not a transform."; return; }
+    $gIDU_Source = $t;
+    print ("Source: " + $gIDU_Source + "\n");
+}
+
+// Button 2: instance source onto targets (match world T/R, local S)
+global proc IDU_InstanceOntoSelection()
+{
+    global string $gIDU_Source; // <-- re-declare to access the global
+    if ($gIDU_Source == "" || !`objExists $gIDU_Source`) { warning "Set source first."; return; }
+
+    string $sel[] = `ls -sl`;
+    if (size($sel) < 1) { warning "Select target transforms."; return; }
+
+    for ($n in $sel)
+    {
+        string $tgt = _asXform($n);
+        if ($tgt == "") continue;
+
+        float $tW[] = `xform -q -ws -t $tgt`;
+        float $rW[] = `xform -q -ws -rotation $tgt`;
+        float $sx = `getAttr ($tgt + ".scaleX")`;
+        float $sy = `getAttr ($tgt + ".scaleY")`;
+        float $sz = `getAttr ($tgt + ".scaleZ")`;
+
+        string $inst[] = `instance -name ($gIDU_Source + "_inst#") $gIDU_Source`;
+        string $i = $inst[0];
+
+        xform -ws -t $tW[0] $tW[1] $tW[2] $i;
+        xform -ws -rotation $rW[0] $rW[1] $rW[2] $i;
+        setAttr ($i + ".scaleX") $sx;
+        setAttr ($i + ".scaleY") $sy;
+        setAttr ($i + ".scaleZ") $sz;
+    }
+}
+
+// UI
+global proc IDU_UI()
+{
+    string $w = "IDU_UI";
+    if (`window -ex $w`) deleteUI $w;
+    window -t "Instance Duplicator" -w 320 -h 100 $w;
+        columnLayout -adj 1 -rs 6;
+            button -l "Button 1: Set Source From Selection" -c "IDU_SetSource()";
+            button -l "Button 2: Instance Source Onto Selection" -c "IDU_InstanceOntoSelection()" -bgc 0.35 0.55 0.35;
+    showWindow $w;
+}
+
+// Run once:
+IDU_UI();
